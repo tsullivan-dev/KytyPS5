@@ -852,7 +852,20 @@ void RenderExecutor::FindBuffers(std::span<PreparedBindings* const> stages) {
 					size = std::min({size, uint64_t {256} * 1024 * 1024, limit});
 				}
 			}
-			size = Libs::LibKernel::Memory::ClampRangeSize(address, size);
+			const auto requested_size = size;
+			size = Libs::LibKernel::Memory::TryClampRangeSize(address, size);
+			if (size == 0) {
+				// Nothing is mapped at the base yet. An unbacked region reads zero and drops writes
+				// on the hardware; binding null gives the same.
+				static std::atomic<uint32_t> reported = 0;
+				if (reported.fetch_add(1) < 8) {
+					LOGF("RenderExecutor: buffer descriptor %u outside mapped memory: stage=%u "
+					     "base=0x%016" PRIx64 " size=0x%016" PRIx64 "\n",
+					     resource, static_cast<uint32_t>(program.stage), address, requested_size);
+				}
+				prepared.buffer_sources.push_back({});
+				continue;
+			}
 			prepared.buffer_sources.push_back({address, size, cache.FindBuffer(address, size)});
 		}
 	}
