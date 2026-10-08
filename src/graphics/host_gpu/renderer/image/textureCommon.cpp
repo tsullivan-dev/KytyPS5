@@ -38,6 +38,11 @@ HostFormatInfo ResolveHostFormat(Prospero::BufferFormat guest_format,
 	if (guest_format == Prospero::BufferFormat::k10_11_11Float) {
 		return {vk::Format::eB10G11R11UfloatPack32, Prospero::ColorMappingBgra};
 	}
+	if (guest_format == Prospero::BufferFormat::k2_10_10_10UNorm) {
+		// Render targets with this layout come with a reversed channel order, which the caller
+		// applies as a component mapping on top of the host format.
+		return {vk::Format::eA2B10G10R10UnormPack32, {}};
+	}
 	if (order == Prospero::ChannelOrder::kAlt) {
 		switch (guest_format) {
 			case Prospero::BufferFormat::k8_8_8_8UNorm:
