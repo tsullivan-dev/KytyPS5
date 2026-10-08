@@ -130,6 +130,7 @@ LIB_DEFINE(InitAgcDriver_1) {
 	LIB_FUNC("VEGu4dixjUg", Gen5::AgcDcbJumpGetSize);
 	LIB_FUNC("QIXCsbipds0", Gen5::AgcDcbRewindGetSize);
 	LIB_FUNC("zfcxg-ewMK8", Gen5::AgcDcbRewind);
+	LIB_FUNC("DwICrVxerkY", Gen5::AgcDcbRewind); // sceAgcAcbRewind
 	LIB_FUNC("BIPexNBSGog", Gen5::AgcDcbCondExec);
 	LIB_FUNC("ou16V5hh5sg", Gen5::AgcDcbCondExecGetSize);
 	LIB_FUNC("bbFueFP+J4k", Gen5::AgcDcbSetPredication);
@@ -156,6 +157,7 @@ LIB_DEFINE(InitAgcDriver_1) {
 	LIB_FUNC("k-JpyR2dYAM", Gen5::AgcCondExecPatchSetEnd);
 	LIB_FUNC("3ZWa3AoyWZQ", Gen5::AgcCondExecPatchSetCommandAddress);
 	LIB_FUNC("ziVA3whp3p4", Gen5::AgcRewindPatchSetRewindState);
+	LIB_FUNC("eWaWyFegzgQ", Gen5::AgcRewindPatchSetRewindState); // sceAgcAsyncRewindPatchSetRewindState
 	LIB_FUNC("YUeqkyT7mEQ", Gen5::AgcDcbSetFlip);
 }
 
