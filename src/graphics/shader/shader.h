@@ -155,6 +155,9 @@ struct ShaderComputeInputInfo: ShaderWorkgroupInputInfo {
 	int                thread_ids_num             = 0;
 	int                workgroup_register         = 0;
 	bool               tg_size_en                 = false;
+	// Output of GetComputeProgram: the shader calls functions (so far only ray tracing shaders),
+	// which are not translated, so no program is produced and its dispatches are not run.
+	bool               uses_function_calls        = false;
 	ShaderStageRuntime stage;
 };
 

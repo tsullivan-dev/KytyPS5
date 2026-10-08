@@ -530,6 +530,18 @@ TranslateResult TranslateProgram(std::span<const uint32_t> code, const CompileOp
 		}
 	}
 
+	// S_SWAPPC_B64 with NULL as the destination is a plain jump (decoded as S_SETPC_B64). With a
+	// real destination it is a call that returns; the shaders seen doing that are ray tracing ones.
+	// Without ray tracing support the program is not produced and its dispatches are skipped.
+	for (const auto& inst: decoded.instructions) {
+		if (inst.family == Decoder::Family::SOP1 && inst.opcode_id == 0x21u &&
+		    inst.opcode == Decoder::Opcode::UNSUPPORTED) {
+			TranslateResult calls_result;
+			calls_result.uses_function_calls = true;
+			return calls_result;
+		}
+	}
+
 	LOGF("%s phase begin: stage=%s hash=0x%016" PRIx64 " CFG BuildGraph\n", GetDumpLabel(options),
 	     StageName(options.stage), options.shader_hash);
 	auto native_cfg = CFG::BuildGraph(decoded);
