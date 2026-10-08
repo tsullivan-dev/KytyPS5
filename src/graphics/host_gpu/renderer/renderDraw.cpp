@@ -473,9 +473,28 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
 	state.height                = std::numeric_limits<uint32_t>::max();
 	state.num_layers            = std::numeric_limits<uint32_t>::max();
 	state.num_color_attachments = 0;
+	// Vulkan wants one sample count per pass. The pipeline drops attachments whose count differs
+	// from the highest one (see PipelineCache::GetGraphicsPipeline); the pass has to drop the same
+	// ones, or the host renders 1x colour against 2x depth and the GPU faults.
+	uint32_t pass_samples = 0;
+	for (uint32_t i = 0; i < color_count; i++) {
+		pass_samples = std::max(pass_samples, colors[i].desc.info.samples);
+	}
+	const bool depth_in_use =
+	    static_cast<bool>(depth.image_id) && depth.desc.view_info.format != vk::Format::eUndefined;
+	if (depth_in_use) {
+		pass_samples = std::max(pass_samples, depth.desc.info.samples);
+	}
 	for (uint32_t i = 0; i < color_count; i++) {
 		auto& target = colors[i];
 		EXIT_IF(!target.image_id);
+		if (target.desc.info.samples != pass_samples) {
+			state.num_color_attachments =
+			    std::max(state.num_color_attachments, target.target_slot + 1);
+			// Not an attachment of this pass, so a shader that samples it sees a plain image.
+			cache.GetImage(target.image_id).binding.is_target = false;
+			continue;
+		}
 		const auto owner = cache.m_slot_images.try_get(target.image_id);
 		if (owner == nullptr || (!owner->registered && !owner->info.data.Empty()) ||
 		    owner->binding.needs_rebind) {
@@ -495,15 +514,28 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
 		                                     view.layer_count},
 		              buffer.Handle());
 		const auto extent       = target.Extent();
-		state.width             = std::min(state.width, extent.width);
-		state.height            = std::min(state.height, extent.height);
+		// The host view can be smaller than the guest target says (mip aliases); the render area
+		// has to fit inside every attachment view.
+		const vk::Extent2D host_extent {std::max(image.backing.extent.width >> view.base_level, 1u),
+		                                std::max(image.backing.extent.height >> view.base_level, 1u)};
+		if (host_extent.width < extent.width || host_extent.height < extent.height) {
+			static std::atomic<uint32_t> reported = 0;
+			if (reported.fetch_add(1, std::memory_order_relaxed) < 16) {
+				LOGF("RenderTargets: colour slot %u guest extent %ux%u exceeds host view %ux%u "
+				     "(mip %u)\n",
+				     target.target_slot, extent.width, extent.height, host_extent.width,
+				     host_extent.height, view.base_level);
+			}
+		}
+		state.width             = std::min({state.width, extent.width, host_extent.width});
+		state.height            = std::min({state.height, extent.height, host_extent.height});
 		state.num_layers        = std::min(state.num_layers, view.layer_count);
 		state.num_color_attachments = std::max(state.num_color_attachments, target.target_slot + 1);
 		auto& attachment            = state.color_attachments[target.target_slot];
 		attachment.image_view   = image_view;
 		attachment.image_layout = layout;
 	}
-	if (depth.image_id) {
+	if (depth.image_id && (!depth_in_use || depth.desc.info.samples == pass_samples)) {
 		const auto owner = cache.m_slot_images.try_get(depth.image_id);
 		if (owner == nullptr || !owner->registered || owner->binding.needs_rebind) {
 			EXIT("depth target changed after render-state discovery\n");
@@ -557,8 +589,19 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
 		              ImageSubresourceRange {view.base_level, view.level_count, view.base_layer,
 		                                     view.layer_count},
 		              buffer.Handle());
-		state.width               = std::min(state.width, depth.desc.info.extent.width);
-		state.height              = std::min(state.height, depth.desc.info.extent.height);
+		const vk::Extent2D host_extent {std::max(image.backing.extent.width >> view.base_level, 1u),
+		                                std::max(image.backing.extent.height >> view.base_level, 1u)};
+		if (host_extent.width < depth.desc.info.extent.width ||
+		    host_extent.height < depth.desc.info.extent.height) {
+			static std::atomic<uint32_t> reported = 0;
+			if (reported.fetch_add(1, std::memory_order_relaxed) < 16) {
+				LOGF("RenderTargets: depth guest extent %ux%u exceeds host view %ux%u (mip %u)\n",
+				     depth.desc.info.extent.width, depth.desc.info.extent.height,
+				     host_extent.width, host_extent.height, view.base_level);
+			}
+		}
+		state.width  = std::min({state.width, depth.desc.info.extent.width, host_extent.width});
+		state.height = std::min({state.height, depth.desc.info.extent.height, host_extent.height});
 		state.num_layers          = std::min(state.num_layers, view.layer_count);
 		const auto aspects        = ImageViewOps::DepthAspectMask(depth.desc.view_info.format);
 		auto&      attachment     = state.depth_stencil_attachment;
@@ -570,6 +613,9 @@ RenderState RenderExecutor::AcquireRenderTargets(CommandBuffer& buffer, RenderCo
 		attachment.depth_clear    = depth.depth_load_clear_enable;
 		attachment.has_stencil    = static_cast<bool>(aspects & vk::ImageAspectFlagBits::eStencil);
 		attachment.stencil_clear  = depth.stencil_clear_enable;
+	}
+	if (depth_in_use && depth.desc.info.samples != pass_samples) {
+		cache.GetImage(depth.image_id).binding.is_target = false;
 	}
 	if (color_count == 0 && !depth.image_id) {
 		const auto& limits = buffer.GetGraphics().GetPhysicalDeviceProperties().limits;
